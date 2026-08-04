@@ -16,56 +16,79 @@ Sanskrit *vega* = impetus / velocity. Also the star.
 
 Research pass covered massdns, puredns/shuffledns, dnsx, subfinder, alterx/gotator/altdns, and ZDNS. See [docs/RESEARCH.md](docs/RESEARCH.md).
 
-## Claim bounds (read first)
+## How to read the numbers
 
-Numbers in this README come from **fixed private lab / gym suites**.
+We plant a fixed set of **real** answers (oracle). Every tool gets the same wordlist and the same mock server.
 
-**Proves:** wall + recall + precision + F1 on those suites.  
-**Does not prove:** fastest tool on the public internet, massdns QPS supremacy, or full ASM replacement.
+| Column | Plain English |
+|---|---|
+| Time | Seconds until the tool finishes (lower is faster) |
+| Real found | How many planted answers it recovered (higher is better; max = oracle size) |
+| Reported | How many names/URLs it printed as hits |
+| Junk | Reported − Real found (noise you still have to triage) |
+| Clean hit rate | Real found / Reported. **100%** means every printed hit was real |
 
-Prefer **F1 with wall**, not wall alone. massdns can finish faster and dump more noise.
+**Faster is not always better.** A tool can finish first and still bury you in junk. We care about **all real answers, almost no junk**, then speed.
 
-Full tables and reproduce steps: **[docs/BENCHMARKS.md](docs/BENCHMARKS.md)**.
+These are private lab / gym suites only. Not “fastest on the public internet.”  
+Full raw tables: **[docs/BENCHMARKS.md](docs/BENCHMARKS.md)**.
 
 ## Benchmarks at a glance
 
-### DNS — Kali lab (wildcard zone, 500 known-true, 8k labels)
+### 1. DNS lab — find subdomains, ignore wildcard noise
 
-| tool | wall_s | recall | precision | F1 |
+**Setup:** 500 real subdomains planted. Zone also answers random junk labels (wildcard). Wordlist: 8000 labels. Host: Kali.
+
+| tool | Time | Real found (of 500) | Reported | Junk | Clean hit rate |
+|---|---:|---:|---:|---:|---:|
+| **vegadns** | **0.18s** | **500** | **500** | **0** | **100%** |
+| massdns | 0.43s | 500 | 721 | 221 | 69% |
+| gobuster-dns | 161s | 0 | 0 | 0 | — |
+
+**Takeaway:** vegadns and massdns both found every real name. massdns also printed **221 wildcard lies**. vegadns filtered those and finished faster on this suite.
+
+### 2. DNS stress gym — flaky resolver (latency + packet loss)
+
+**Setup:** 800 real names. Mock DNS adds 10 ms delay, 5% SERVFAIL, 2% drop. Wordlist: 2000. Host: Kali.
+
+| tool | Time | Real found (of 800) | Reported | Junk | Clean hit rate |
+|---|---:|---:|---:|---:|---:|
+| massdns | **0.97s** | 800 | 1699 | 899 | 47% |
+| shuffledns | 1.82s | 800 | 1700 | 900 | 47% |
+| **vegadns** | 3.31s | **800** | **800** | **0** | **100%** |
+| puredns | 3.82s | 800 | 1700 | 900 | 47% |
+
+**Takeaway:** massdns is the speed king here but ~half its output is noise. vegadns is slower and prints **only** real hits.
+
+### 3. Same tool, before vs after hot-path work
+
+**Setup:** Windows gym-stress, 3000 candidates, same 800 oracle. No peer race. We only compare vegadns to itself.
+
+| build | Time | Real found | Clean hit rate | Names checked / sec |
 |---|---:|---:|---:|---:|
-| **vegadns** | **0.176** | **1.000** | **1.000** | **1.000** |
-| massdns | 0.434 | 1.000 | 0.693 | 0.819 |
-| gobuster-dns | 161.3 | 0.000 | 1.000 | 0.000 |
+| before | 0.59s | 800 / 800 | 100% | 5,047 |
+| **after (best)** | **0.40s** | 800 / 800 | 100% | **7,583** |
 
-### DNS — gym stress (Kali, 10 ms latency, 5% SERVFAIL, 2% drop)
+**Takeaway:** ~**33%** faster, ~**50%** more names per second, still zero junk. Detail: [docs/OPTIMIZATION_BREAKTHROUGHS.md](docs/OPTIMIZATION_BREAKTHROUGHS.md).
 
-| tool | wall_s | recall | precision | F1 |
-|---|---:|---:|---:|---:|
-| **vegadns** | 3.31 | 1.000 | **1.000** | **1.000** |
-| massdns | **0.97** | 1.000 | 0.471 | 0.640 |
-| shuffledns | 1.82 | 1.000 | 0.471 | 0.640 |
-| puredns | 3.82 | 1.000 | 0.471 | 0.640 |
+### 4. HTTP paths — server lies with “200 OK” on missing pages
 
-massdns wins wall. vegadns wins clean F1 (wildcard filter).
+**Setup:** 24 real paths planted (`/admin`, `/api`, …). **Soft-404:** missing paths still return HTTP **200** with a fixed “not found” body. Status-only tools treat those as hits. Wordlist mixes real paths + bait. Host: Kali.
 
-### DNS — hot-path campaign (Windows gym-stress, 3k candidates)
+| tool | Time | Real found (of 24) | Reported | Junk | Clean hit rate |
+|---|---:|---:|---:|---:|---:|
+| feroxbuster | **1.56s** | 24 | 61 | **37** | 39% |
+| **vegadns paths** | 2.26s | **24** | **24** | **0** | **100%** |
+| ffuf | 3.82s | 24 | 59 | **35** | 41% |
 
-| round | wall_s | F1 | candidates/s |
-|---|---:|---:|---:|
-| baseline | 0.594 | 1.000 | 5047 |
-| **best (burst/drain + retry hygiene)** | **0.396** | 1.000 | **7583** |
+**What this means**
 
-~33% wall cut, +50% candidates/s, R/P/F1 held at 1.0. Detail: [docs/OPTIMIZATION_BREAKTHROUGHS.md](docs/OPTIMIZATION_BREAKTHROUGHS.md).
+1. Every tool found all 24 real paths.
+2. ferox finished first but also reported **37 fake pages** (soft-404 200s).
+3. ffuf same story: **35** fakes.
+4. vegadns probed the lie pattern, dropped the fakes, and printed **exactly the 24 real URLs**.
 
-### HTTP paths — Kali hard soft-404 suite (24 known-true)
-
-| tool | wall_s | recall | precision | F1 |
-|---|---:|---:|---:|---:|
-| **vegadns-paths** | 2.26 | **1.000** | **1.000** | **1.000** |
-| feroxbuster | **1.56** | 1.000 | 0.393 | 0.565 |
-| ffuf | 3.82 | 1.000 | 0.407 | 0.578 |
-
-Peers keep soft-404 200 responses. vegadns drops them after probes.
+**Takeaway:** on a lying soft-404 site, ferox is faster; vegadns is the only timed tool here that does not spam junk 200s.
 
 ## Build
 
