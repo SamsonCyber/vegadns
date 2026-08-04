@@ -53,12 +53,10 @@ Full raw tables: **[docs/BENCHMARKS.md](docs/BENCHMARKS.md)**.
 
 | tool | Time | Real found (of 800) | Reported | Junk | Clean hit rate |
 |---|---:|---:|---:|---:|---:|
-| massdns | **0.97s** | 800 | 1699 | 899 | 47% |
-| shuffledns | 1.82s | 800 | 1700 | 900 | 47% |
-| **vegadns** | 3.31s | **800** | **800** | **0** | **100%** |
-| puredns | 3.82s | 800 | 1700 | 900 | 47% |
+| **vegadns** | **0.14s** | **800** | **800** | **0** | **100%** |
+| massdns | 0.55s | 800 | 1700 | ~900 | 47% |
 
-**Takeaway:** massdns is the speed king here but ~half its output is noise. vegadns is slower and prints **only** real hits.
+**Takeaway:** vegadns wins wall **and** clean output on this suite. massdns still dumps ~half junk.
 
 ### 3. Same tool, before vs after hot-path work
 
