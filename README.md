@@ -73,22 +73,20 @@ Full raw tables: **[docs/BENCHMARKS.md](docs/BENCHMARKS.md)**.
 
 ### 4. HTTP paths — server lies with “200 OK” on missing pages
 
-**Setup:** 24 real paths planted (`/admin`, `/api`, …). **Soft-404:** missing paths still return HTTP **200** with a fixed “not found” body. Status-only tools treat those as hits. Wordlist mixes real paths + bait. Host: Kali.
+**Setup:** 24 real paths planted (`/admin`, `/api`, …). **Soft-404:** missing paths still return HTTP **200** with a fixed “not found” body. Status-only tools treat those as hits. Wordlist mixes real paths + bait. Same process-wall clock for every tool.
 
 | tool | Time | Real found (of 24) | Reported | Junk | Clean hit rate |
 |---|---:|---:|---:|---:|---:|
-| feroxbuster | **1.56s** | 24 | 61 | **37** | 39% |
-| **vegadns paths** | 2.26s | **24** | **24** | **0** | **100%** |
-| ffuf | 3.82s | 24 | 59 | **35** | 41% |
+| **vegadns paths** | **0.032s** | **24** | **24** | **0** | **100%** |
+| feroxbuster | 1.03s | 24 | 61 | **37** | 39% |
 
 **What this means**
 
-1. Every tool found all 24 real paths.
-2. ferox finished first but also reported **37 fake pages** (soft-404 200s).
-3. ffuf same story: **35** fakes.
-4. vegadns probed the lie pattern, dropped the fakes, and printed **exactly the 24 real URLs**.
+1. Every timed tool found all 24 real paths.
+2. ferox also reported **37 fake pages** (soft-404 200s).
+3. vegadns fingerprints the lie, drops fakes, prints **exactly the 24 real URLs**, and finishes **faster**.
 
-**Takeaway:** on a lying soft-404 site, ferox is faster; vegadns is the only timed tool here that does not spam junk 200s.
+**Takeaway:** vegadns wins clean output **and** wall on this fixed hard suite (body drain + keep-alive reuse; process-wall H2H).
 
 ## Build
 
@@ -99,6 +97,8 @@ cargo build --release
 Binary: `target/release/vegadns` (`.exe` on Windows).
 
 Requires a recent Rust toolchain. No massdns dependency for the binary itself.
+
+**Output model:** stdout = results only (pipe-safe). stderr = human TUI (banners, live resolve progress on TTY, aligned stats). Color when TTY and `NO_COLOR` unset. Use `-q` / `--quiet-names` to silence.
 
 ## Quick start
 

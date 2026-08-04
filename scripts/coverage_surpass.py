@@ -562,13 +562,13 @@ ThreadingHTTPServer(('127.0.0.1', {http_port}), H).serve_forever()
                 "--status",
                 PATH_STATUSES,
                 "--soft404-probes",
-                "4",
+                "3",
                 "--concurrency",
-                "128",
+                "64",
                 "--timeout-ms",
                 "3000",
                 "--retries",
-                "1",
+                "0",
                 "-q",
             ]
         )
@@ -577,14 +577,17 @@ ThreadingHTTPServer(('127.0.0.1', {http_port}), H).serve_forever()
             found = [ln.strip().lower() for ln in so.splitlines() if ln.strip().startswith("http")]
         r, p, hit = recall_precision(found, known)
         st = json.loads(stats.read_text()) if stats.exists() else {}
-        wall_v = float(st.get("wall_secs", wall))
+        # Fair H2H: use process wall for every tool (same run_cmd clock as ferox/ffuf).
+        # Engine wall_secs stays in stats/notes for debug only.
+        eng_wall = float(st.get("wall_secs", wall)) if st else float(wall)
         known_keys = {normalize_name(k) for k in known}
         noise = [u for u in found if normalize_name(u) not in known_keys]
         rows.append(
             {
                 "tool": "vegadns-paths",
                 "timed": code == 0,
-                "wall": wall_v,
+                "wall": float(wall),
+                "engine_wall": eng_wall,
                 "found": len(found),
                 "recall": r,
                 "precision": p,
@@ -592,7 +595,10 @@ ThreadingHTTPServer(('127.0.0.1', {http_port}), H).serve_forever()
                 "hit": hit,
                 "known_n": len(known),
                 "noise": len(noise),
-                "note": f"soft404 filter drop={st.get('soft404_dropped','?')} status={PATH_STATUSES}",
+                "note": (
+                    f"soft404 filter drop={st.get('soft404_dropped','?')} "
+                    f"status={PATH_STATUSES} engine_wall={eng_wall:.4f}"
+                ),
             }
         )
         (out / "paths_vegadns.log").write_text(f"exit={code}\n{se}\n{so}\n", encoding="utf-8")
@@ -611,7 +617,11 @@ ThreadingHTTPServer(('127.0.0.1', {http_port}), H).serve_forever()
                 "--status",
                 PATH_STATUSES,
                 "--soft404-probes",
-                "10",
+                "3",
+                "--concurrency",
+                "64",
+                "--retries",
+                "0",
                 "-q",
             ]
         )

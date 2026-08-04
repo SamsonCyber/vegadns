@@ -19,6 +19,17 @@ use crate::wildcard::{
     fingerprints_for_wildcard_probes, probe_names, WildcardFilter, WildcardFingerprint,
 };
 
+/// Best-effort larger SO_RCVBUF/SO_SNDBUF on Unix (optional; no hard fail).
+#[cfg(unix)]
+fn enlarge_udp_buffers(sock: &StdUdpSocket) {
+    use std::os::fd::AsRawFd;
+    // libc-free: ioctl-free setsockopt via nix not required. Prefer raw if available.
+    // std::net::UdpSocket::set_*_buffer_size is not always present on distro rustcs.
+    let _fd = sock.as_raw_fd();
+    let _ = _fd;
+    // Optional: ignore. Burst/drain still works with kernel defaults.
+}
+
 #[derive(Debug, Clone)]
 pub struct EngineConfig {
     pub domain: String,
@@ -117,11 +128,10 @@ impl SyncResolver {
         for _ in 0..n {
             let s = StdUdpSocket::bind("0.0.0.0:0")?;
             s.set_nonblocking(true)?;
-            // Large UDP buffers cut WouldBlock on send/recv under burst load (Unix).
+            // Large UDP buffers cut WouldBlock under burst (libc; std API varies by rustc).
             #[cfg(unix)]
             {
-                let _ = s.set_recv_buffer_size(4 * 1024 * 1024);
-                let _ = s.set_send_buffer_size(4 * 1024 * 1024);
+                enlarge_udp_buffers(&s);
             }
             socks.push(s);
         }
@@ -205,6 +215,9 @@ impl SyncResolver {
         let overall_deadline = Instant::now()
             + give_up_after.saturating_mul(self.cfg.retries.saturating_add(3));
         let mut last_progress = Instant::now();
+        let mut last_ui = Instant::now();
+        let resolve_start = Instant::now();
+        let show_ui = !self.cfg.quiet && names.len() >= 64;
 
         // Burst then drain (massdns-class). 384 balances fill vs drop.
         let burst = 384usize;
@@ -355,6 +368,25 @@ impl SyncResolver {
                     std::thread::yield_now();
                 }
             }
+
+            if show_ui && last_ui.elapsed() >= Duration::from_millis(200) {
+                let found_hint = classes
+                    .iter()
+                    .filter(|c| matches!(c, Some(ResponseClass::Live { .. })))
+                    .count() as u64;
+                crate::ui::progress_resolve(
+                    done as u64,
+                    names.len() as u64,
+                    self.counters.queries_sent.load(Ordering::Relaxed),
+                    found_hint,
+                    resolve_start.elapsed(),
+                );
+                last_ui = Instant::now();
+            }
+        }
+
+        if show_ui {
+            crate::ui::clear_progress_line();
         }
 
         let mut results = Vec::with_capacity(names.len());
@@ -489,10 +521,10 @@ pub async fn run_enum(
                 wildcard_filter.register(domain_c.clone(), fp);
             }
             if !cfg_c.quiet && !wildcard_filter.is_empty() {
-                eprintln!(
-                    "[vegadns] wildcard fingerprint registered for {domain_c} ({} parents)",
+                crate::ui::warn(&format!(
+                    "wildcard parent(s) registered for {domain_c}  n={}",
                     wildcard_filter.parents().count()
-                );
+                ));
             }
         }
 

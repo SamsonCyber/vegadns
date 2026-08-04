@@ -15,6 +15,7 @@ use vegadns::paths_engine::{
     path_f1, path_precision, path_recall, rewrite_port_template, run_paths, PathsConfig,
 };
 use vegadns::permute::{permute_labels, PermuteConfig};
+use vegadns::ui;
 use vegadns::wordlists::{
     build_scan_labels, cap_labels, resolve_wordlist_sources, Preset, ScanDepth,
 };
@@ -240,24 +241,24 @@ enum Commands {
         #[arg(short = 'o', long = "output")]
         output: Option<PathBuf>,
 
-        /// Concurrent requests (default 50).
-        #[arg(long = "concurrency", default_value_t = 50)]
+        /// Concurrent requests (default 64; capped in-engine per host).
+        #[arg(long = "concurrency", default_value_t = 64)]
         concurrency: usize,
 
         /// Per-request timeout ms.
-        #[arg(long = "timeout-ms", default_value_t = 5000)]
+        #[arg(long = "timeout-ms", default_value_t = 3000)]
         timeout_ms: u64,
 
         /// Status codes treated as hits (default 200,201,204,301,302,307,308,401,403).
         #[arg(long = "status", default_value = "200,201,204,301,302,307,308,401,403")]
         status: String,
 
-        /// Soft-404 probe count (0 disables). Default 8.
-        #[arg(long = "soft404-probes", default_value_t = 8)]
+        /// Soft-404 probe count (0 disables). Default 3.
+        #[arg(long = "soft404-probes", default_value_t = 3)]
         soft404_probes: usize,
 
-        /// Retries after transport error. Default 2.
-        #[arg(long = "retries", default_value_t = 2)]
+        /// Retries after transport error. Default 0 (lab-fast); raise for flaky targets.
+        #[arg(long = "retries", default_value_t = 0)]
         retries: u32,
 
         /// Emit "URL STATUS" lines instead of URL only.
@@ -333,10 +334,10 @@ async fn main() -> anyhow::Result<()> {
             };
             let server =
                 vegadns::mock_dns::MockServer::spawn_on_with_stress(zone, &bind, stress)?;
-            eprintln!(
-                "[vegadns] mock-serve listening on {} latency_ms={} servfail_pct={} drop_pct={} (Ctrl+C to stop)",
+            ui::info(&format!(
+                "mock-serve  {}  latency_ms={}  servfail={}%%  drop={}%%  (Ctrl+C stop)",
                 server.addr, stress.latency_ms, stress.servfail_pct, stress.drop_pct
-            );
+            ));
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
             }
@@ -377,33 +378,45 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Wordlist { action } => match action {
             WordlistCmd::List => {
-                println!("depth\tlevel\tlist\tlabels\tpermute\tnotes");
+                let mut depth_rows = Vec::new();
                 for d in ScanDepth::all() {
                     let p = d.plan();
                     let n = p.list.labels().len();
                     let perm = if p.auto_permute {
                         format!(
-                            "auto(seed_cap={}, nums={}, max={})",
-                            p.permute_seed_cap.map(|x| x.to_string()).unwrap_or_else(|| "-".into()),
+                            "auto(seed={},n={},max={})",
+                            p.permute_seed_cap
+                                .map(|x| x.to_string())
+                                .unwrap_or_else(|| "-".into()),
                             p.permute_numbers,
-                            p.permute_max.map(|x| x.to_string()).unwrap_or_else(|| "-".into()),
+                            p.permute_max
+                                .map(|x| x.to_string())
+                                .unwrap_or_else(|| "-".into()),
                         )
                     } else {
                         "off".into()
                     };
-                    println!(
-                        "{}\t{}\t{}\t{n}\t{perm}\t{}",
-                        d.as_str(),
+                    depth_rows.push((
+                        d.as_str().to_string(),
                         d.level(),
-                        p.list.as_str(),
-                        d.blurb()
-                    );
+                        p.list.as_str().to_string(),
+                        n,
+                        perm,
+                        d.blurb().to_string(),
+                    ));
                 }
-                println!();
-                println!("preset\tlabels\trole");
-                for p in Preset::all() {
-                    println!("{}\t{}\t{}", p.as_str(), p.labels().len(), p.role());
-                }
+                ui::print_depth_table(&depth_rows);
+                let preset_rows: Vec<_> = Preset::all()
+                    .iter()
+                    .map(|p| {
+                        (
+                            p.as_str().to_string(),
+                            p.labels().len(),
+                            p.role().to_string(),
+                        )
+                    })
+                    .collect();
+                ui::print_preset_table(&preset_rows);
             }
             WordlistCmd::Emit {
                 sources,
@@ -417,9 +430,9 @@ async fn main() -> anyhow::Result<()> {
                 }
                 if let Some(path) = output {
                     std::fs::write(&path, labels.join("\n") + "\n")?;
-                    eprintln!("[vegadns] wrote {} labels -> {}", labels.len(), path.display());
+                    ui::wrote("labels", labels.len(), &path.display().to_string());
                 } else {
-                    eprintln!("[vegadns] {} labels", labels.len());
+                    ui::info(&format!("{} labels (stdout)", labels.len()));
                 }
             }
         },
@@ -457,9 +470,9 @@ async fn main() -> anyhow::Result<()> {
             }
             if let Some(path) = output {
                 std::fs::write(&path, out.join("\n") + "\n")?;
-                eprintln!("[vegadns] permute wrote {} labels -> {}", out.len(), path.display());
+                ui::wrote("labels", out.len(), &path.display().to_string());
             } else {
-                eprintln!("[vegadns] permute {} labels", out.len());
+                ui::info(&format!("permute  {} labels (stdout)", out.len()));
             }
         }
         Commands::Enum {
@@ -535,18 +548,20 @@ async fn main() -> anyhow::Result<()> {
                     cfg.domain = zone.base.clone();
                 }
                 if !quiet {
-                    eprintln!(
-                        "[vegadns] mock zone {} (base={}) depth={} labels={} permute={}",
-                        zone_path.display(),
-                        cfg.domain,
-                        depth.map(|d| d.as_str()).unwrap_or("-"),
+                    ui::enum_start(
+                        &cfg.domain,
                         words.len(),
-                        do_permute
+                        depth.map(|d| d.as_str()),
+                        do_permute,
+                        1,
+                        concurrency,
+                        true,
                     );
+                    ui::info(&format!("zone   {}", zone_path.display()));
                 }
                 let (res, addr) = run_enum_with_mock(cfg, &words, zone).await?;
                 if !quiet {
-                    eprintln!("[vegadns] mock DNS at {addr}");
+                    ui::info(&format!("mock   {addr}"));
                 }
                 res
             } else {
@@ -560,14 +575,14 @@ async fn main() -> anyhow::Result<()> {
                     .ok_or_else(|| anyhow::anyhow!("--resolvers is required without --mock-zone"))?;
                 let resolvers = load_resolvers(&resolvers_path)?;
                 if !quiet {
-                    eprintln!(
-                        "[vegadns] domain={} depth={} fqdn_list={} labels={} permute={} resolvers={}",
-                        cfg.domain,
-                        depth.map(|d| d.as_str()).unwrap_or("-"),
-                        cfg.fqdn_list,
+                    ui::enum_start(
+                        &cfg.domain,
                         words.len(),
+                        depth.map(|d| d.as_str()),
                         do_permute,
-                        resolvers.len()
+                        resolvers.len(),
+                        concurrency,
+                        false,
                     );
                 }
                 run_enum(cfg, &words, resolvers).await?
@@ -581,39 +596,19 @@ async fn main() -> anyhow::Result<()> {
                 let body = result.names.join("\n") + "\n";
                 std::fs::write(&path, body)?;
                 if !quiet {
-                    eprintln!(
-                        "[vegadns] wrote {} names -> {}",
-                        result.names.len(),
-                        path.display()
-                    );
+                    ui::wrote("names", result.names.len(), &path.display().to_string());
                 }
             }
 
             if !quiet && !quiet_names {
-                let s = &result.stats;
-                eprintln!(
-                    "[vegadns] done: found={} raw_hits={} candidates={} queries={} qps={:.0} wall={:.3}s nx={} timeout={} wildcards={}",
-                    s.found_after_wildcard,
-                    s.found_raw,
-                    s.candidates,
-                    s.queries_sent,
-                    s.query_rate(),
-                    s.elapsed.as_secs_f64(),
-                    s.nxdomain,
-                    s.timeouts,
-                    s.wildcard_parents
-                );
+                ui::enum_done(&result.stats, result.names.len());
             }
 
             if let Some(kt_path) = known_true {
                 let kt = load_wordlist(&kt_path)?;
                 let r = recall(&result.names, &kt);
                 let p = precision(&result.names, &kt);
-                eprintln!(
-                    "[vegadns] recall={r:.3} precision={p:.3} known_true={} found={}",
-                    kt.len(),
-                    result.names.len()
-                );
+                ui::recall_precision(r, p, kt.len(), result.names.len());
             }
 
             if let Some(path) = stats_json {
@@ -658,17 +653,17 @@ async fn main() -> anyhow::Result<()> {
                 let zone = load_hard_zone(&zone_path)?;
                 let mock = MockHttp::spawn_zone(zone).await?;
                 if !quiet {
-                    eprintln!(
-                        "[vegadns] hard mock HTTP at {} (soft404+status zone)",
+                    ui::info(&format!(
+                        "hard mock HTTP  {}  (soft404 zone)",
                         mock.addr
-                    );
+                    ));
                 }
                 Some(mock)
             } else if let Some(paths_file) = mock_paths {
                 let hits = load_hit_paths(&paths_file)?;
                 let mock = MockHttp::spawn(hits).await?;
                 if !quiet {
-                    eprintln!("[vegadns] mock HTTP at {}", mock.addr);
+                    ui::info(&format!("mock HTTP  {}", mock.addr));
                 }
                 Some(mock)
             } else {
@@ -682,6 +677,10 @@ async fn main() -> anyhow::Result<()> {
                     anyhow::anyhow!("--url is required without --mock-paths/--mock-hard-zone")
                 })?
             };
+
+            if !quiet {
+                ui::paths_start(&base_url, words.len(), concurrency, soft404_probes);
+            }
 
             let cfg = PathsConfig {
                 base_url: base_url.clone(),
@@ -719,26 +718,12 @@ async fn main() -> anyhow::Result<()> {
                 };
                 std::fs::write(&path, body)?;
                 if !quiet {
-                    eprintln!(
-                        "[vegadns] wrote {} hits -> {}",
-                        result.urls.len(),
-                        path.display()
-                    );
+                    ui::wrote("hits", result.urls.len(), &path.display().to_string());
                 }
             }
 
             if !quiet {
-                let s = &result.stats;
-                eprintln!(
-                    "[vegadns] paths done: hits={} candidates={} requests={} rps={:.0} wall={:.3}s soft404_dropped={} errors={}",
-                    s.hits,
-                    s.candidates,
-                    s.requests,
-                    s.request_rate(),
-                    s.elapsed.as_secs_f64(),
-                    s.soft404_dropped,
-                    s.errors
-                );
+                ui::paths_done(&result.stats, result.urls.len());
             }
 
             if let Some(kt_path) = known_true {
@@ -748,12 +733,8 @@ async fn main() -> anyhow::Result<()> {
                 }
                 let r = path_recall(&result.urls, &kt);
                 let p = path_precision(&result.urls, &kt);
-                let f = path_f1(&result.urls, &kt);
-                eprintln!(
-                    "[vegadns] path recall={r:.3} precision={p:.3} f1={f:.3} known_true={} hits={}",
-                    kt.len(),
-                    result.urls.len()
-                );
+                let _f = path_f1(&result.urls, &kt);
+                ui::recall_precision(r, p, kt.len(), result.urls.len());
             }
 
             if let Some(path) = stats_json {

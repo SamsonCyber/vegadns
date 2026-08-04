@@ -6,7 +6,7 @@ use vegadns::dedup::Deduper;
 use vegadns::engine::load_wordlist;
 use std::collections::HashMap;
 
-use vegadns::mock_http::{load_hit_paths, MockHttp, MockHttpZone, PathBehavior};
+use vegadns::mock_http::{load_hard_zone, load_hit_paths, MockHttp, MockHttpZone, PathBehavior};
 use vegadns::path_classify::{classify_status, is_hit, parse_status_list, PathClass};
 use vegadns::path_join::{expand_paths, join_url, normalize_url_key};
 use vegadns::paths_engine::{
@@ -131,4 +131,39 @@ async fn hard_soft404_suite_perfect_f1() {
     assert!((f - 1.0).abs() < 1e-9, "f1 {f}");
     assert!(result.stats.soft404_dropped >= 3);
     assert!(!result.urls.iter().any(|u| u.contains("noise") || u.contains("fake")));
+}
+
+/// Shipped hard fixtures: full oracle recall, zero soft-404 junk after body-drain path.
+#[tokio::test]
+async fn hard_fixture_files_perfect_f1_zero_junk() {
+    let root = env!("CARGO_MANIFEST_DIR");
+    let zone = load_hard_zone(format!("{root}/fixtures/paths/hard_zone.txt")).unwrap();
+    let mock = MockHttp::spawn_zone(zone).await.unwrap();
+    let port = mock.addr.port();
+    let base = mock.base_url();
+    let words = load_wordlist(format!("{root}/fixtures/paths/wordlist_hard.txt")).unwrap();
+    let kt_raw = load_wordlist(format!("{root}/fixtures/paths/known_true_hard.txt")).unwrap();
+    let known = rewrite_port_template(&kt_raw, port);
+
+    let cfg = PathsConfig {
+        base_url: base,
+        concurrency: 64,
+        timeout: Duration::from_secs(3),
+        match_codes: vec![200, 401, 403],
+        quiet: true,
+        soft404_probes: 3,
+        retries: 0,
+    };
+    let result = run_paths(cfg, &words).await.unwrap();
+    mock.shutdown().await;
+
+    let r = path_recall(&result.urls, &known);
+    let p = path_precision(&result.urls, &known);
+    let f = path_f1(&result.urls, &known);
+    assert!((r - 1.0).abs() < 1e-9, "recall {r} found={} known={}", result.urls.len(), known.len());
+    assert!((p - 1.0).abs() < 1e-9, "precision {p} urls={:?}", result.urls);
+    assert!((f - 1.0).abs() < 1e-9, "f1 {f}");
+    assert_eq!(result.urls.len(), known.len());
+    assert!(result.stats.soft404_dropped >= 1, "expected soft404 drops, stats={:?}", result.stats);
+    assert_eq!(result.stats.errors, 0, "errors={:?}", result.stats);
 }

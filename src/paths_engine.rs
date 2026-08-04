@@ -34,13 +34,27 @@ impl Default for PathsConfig {
     fn default() -> Self {
         Self {
             base_url: String::new(),
-            concurrency: 128,
+            concurrency: 256,
             timeout: Duration::from_secs(3),
             match_codes: DEFAULT_HIT_STATUSES.to_vec(),
             quiet: false,
-            soft404_probes: 4,
-            retries: 1,
+            soft404_probes: 3,
+            retries: 0,
         }
+    }
+}
+
+/// Drain response for status + body length without leaving unread bytes on the socket.
+/// Unread bodies break keep-alive reuse and thrash the connection pool.
+async fn status_and_len(resp: reqwest::Response) -> Option<(u16, u64)> {
+    let status = resp.status().as_u16();
+    let header_len = resp.content_length();
+    match resp.bytes().await {
+        Ok(body) => {
+            let len = header_len.unwrap_or(body.len() as u64);
+            Some((status, len))
+        }
+        Err(_) => None,
     }
 }
 
@@ -98,14 +112,7 @@ pub async fn calibrate_soft404(
         let url = format!("{base}/{}", random_probe_path());
         handles.push(tokio::spawn(async move {
             match client.get(&url).send().await {
-                Ok(resp) => {
-                    let status = resp.status().as_u16();
-                    let len = match resp.content_length() {
-                        Some(n) => n,
-                        None => resp.bytes().await.map(|b| b.len() as u64).unwrap_or(0),
-                    };
-                    Some((status, len))
-                }
+                Ok(resp) => status_and_len(resp).await,
                 Err(_) => None,
             }
         }));
@@ -130,10 +137,11 @@ async fn probe_one(
     for attempt in 0..attempts {
         match client.get(&url).send().await {
             Ok(resp) => {
-                let status = resp.status().as_u16();
-                let len = match resp.content_length() {
-                    Some(n) => n,
-                    None => resp.bytes().await.map(|b| b.len() as u64).unwrap_or(0),
+                let Some((status, len)) = status_and_len(resp).await else {
+                    if attempt + 1 < attempts {
+                        continue;
+                    }
+                    return None;
                 };
                 let class = classify_status(status, match_codes);
                 if !is_hit(&class) {
@@ -146,7 +154,8 @@ async fn probe_one(
             }
             Err(_) => {
                 if attempt + 1 < attempts {
-                    tokio::time::sleep(Duration::from_millis(5 + 10 * attempt as u64)).await;
+                    // Tiny backoff only; avoid long sleeps on hot path.
+                    tokio::task::yield_now().await;
                     continue;
                 }
                 return None;
@@ -167,23 +176,31 @@ pub async fn run_paths(cfg: PathsConfig, words: &[String]) -> anyhow::Result<Pat
     };
 
     let conc = cfg.concurrency.max(1);
+    // Cap idle sockets near worker count; avoid opening hundreds of dead conns
+    // against slow single-thread-ish lab servers.
+    let pool = conc.min(n.max(1)).max(8);
     let client = Client::builder()
         .timeout(cfg.timeout)
+        .connect_timeout(Duration::from_secs(2))
         .redirect(reqwest::redirect::Policy::none())
-        .pool_max_idle_per_host(conc)
+        .pool_max_idle_per_host(pool)
         .pool_idle_timeout(Duration::from_secs(30))
         .tcp_nodelay(true)
+        .tcp_keepalive(Some(Duration::from_secs(30)))
         .http1_only()
+        .no_gzip()
+        .no_brotli()
+        .no_deflate()
         .build()?;
 
     let start = Instant::now();
     let soft404 = calibrate_soft404(&client, &cfg.base_url, cfg.soft404_probes).await;
     if !cfg.quiet && !soft404.is_empty() {
-        eprintln!(
-            "[vegadns] soft-404 fingerprints={} (probes={})",
+        crate::ui::info(&format!(
+            "soft404  fingerprints={}  probes={}",
             soft404.len(),
             cfg.soft404_probes
-        );
+        ));
     }
 
     let urls = Arc::new(candidates);
@@ -196,7 +213,8 @@ pub async fn run_paths(cfg: PathsConfig, words: &[String]) -> anyhow::Result<Pat
     let soft_arc = Arc::new(soft404.clone());
     let match_arc = Arc::new(match_codes);
     let retries = cfg.retries;
-    let workers = conc.min(n.max(1));
+    // Match ferox-style bounded workers; too many tasks thrash ThreadingHTTPServer.
+    let workers = conc.min(n.max(1)).min(64).max(1);
 
     let mut handles = Vec::with_capacity(workers);
     for _ in 0..workers {
@@ -212,12 +230,13 @@ pub async fn run_paths(cfg: PathsConfig, words: &[String]) -> anyhow::Result<Pat
         let soft = Arc::clone(&soft_arc);
         let total = n;
         handles.push(tokio::spawn(async move {
-            let mut local_hits: Vec<(String, u16)> = Vec::new();
+            let mut local_hits: Vec<(String, u16)> = Vec::with_capacity(8);
             loop {
                 let i = next.fetch_add(1, Ordering::Relaxed);
                 if i >= total {
                     break;
                 }
+                // Borrow then clone only the URL we probe (same as before, clearer).
                 let url = urls[i].clone();
                 requests.fetch_add(1, Ordering::Relaxed);
                 match probe_one(&client, url, &match_codes, &soft, retries).await {

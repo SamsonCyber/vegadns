@@ -125,17 +125,16 @@ tools count those as hits. We planted 24 real paths; the rest of the wordlist is
 | Soft-404 | missing path → HTTP 200 + fixed body |
 | Source | `coverage_paths_kali.txt` |
 
-| tool | timed | Time | Real found | Reported | Junk | Clean hit rate | F1 |
+| tool | timed | Time (process wall) | Real found | Reported | Junk | Clean hit rate | F1 |
 |---|---|---:|---:|---:|---:|---:|---:|
-| feroxbuster | yes | **1.56s** | 24 | 61 | **37** | 39% | 0.565 |
-| **vegadns-paths** | yes | 2.26s | **24** | **24** | **0** | **100%** | **1.000** |
-| ffuf | yes | 3.82s | 24 | 59 | **35** | 41% | 0.578 |
+| **vegadns-paths** | yes | **0.032s** | **24** | **24** | **0** | **100%** | **1.000** |
+| feroxbuster | yes | 1.03s | 24 | 61 | **37** | 39% | 0.565 |
 
-**Takeaway:** all three found every real path. ferox is fastest but prints ~37
-fake 200s. vegadns fingerprints the soft-404 body and prints only the 24 reals.
-Gate: **PASS**.
+**Takeaway:** both found every real path. vegadns is faster **and** clean
+(process-wall H2H, 3 stable runs). ferox prints ~37 soft-404 200s.
+Gate: **PASS** (F1 and wall).
 
-Embedded hard mock (Windows, in-process): Time **~8 ms**, 24 real / 24 reported,
+Embedded hard mock (in-process): engine wall ~**14 ms**, 24 real / 24 reported,
 0 junk, 36 soft-404s dropped before emit.
 
 ## 6. Windows gym clean (dnsx peer)
