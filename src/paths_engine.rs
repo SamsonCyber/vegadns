@@ -197,7 +197,7 @@ pub async fn run_paths(cfg: PathsConfig, words: &[String]) -> anyhow::Result<Pat
     let soft404 = calibrate_soft404(&client, &cfg.base_url, cfg.soft404_probes).await;
     if !cfg.quiet && !soft404.is_empty() {
         crate::ui::info(&format!(
-            "soft404  fingerprints={}  probes={}",
+            "soft-404 calibrated  |  fingerprints={}  |  probes={}",
             soft404.len(),
             cfg.soft404_probes
         ));
@@ -215,6 +215,28 @@ pub async fn run_paths(cfg: PathsConfig, words: &[String]) -> anyhow::Result<Pat
     let retries = cfg.retries;
     // Match ferox-style bounded workers; too many tasks thrash ThreadingHTTPServer.
     let workers = conc.min(n.max(1)).min(64).max(1);
+    let show_ui = !cfg.quiet && crate::ui::stderr_is_tty();
+
+    // Live progress poller (TTY only). Workers own the scan; this only reads atomics.
+    let progress = if show_ui {
+        let next_p = Arc::clone(&next);
+        let hits_p = Arc::clone(&hits_c);
+        let total = n;
+        let t0 = start;
+        Some(tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                let done = next_p.load(Ordering::Relaxed).min(total) as u64;
+                let hits = hits_p.load(Ordering::Relaxed);
+                crate::ui::progress_paths(done, total as u64, hits, t0.elapsed());
+                if done >= total as u64 {
+                    break;
+                }
+            }
+        }))
+    } else {
+        None
+    };
 
     let mut handles = Vec::with_capacity(workers);
     for _ in 0..workers {
@@ -272,6 +294,18 @@ pub async fn run_paths(cfg: PathsConfig, words: &[String]) -> anyhow::Result<Pat
                 }
             }
         }
+    }
+
+    if let Some(p) = progress {
+        // Bump progress to 100% then clear the line for the done panel.
+        crate::ui::progress_paths(
+            n as u64,
+            n as u64,
+            hits_c.load(Ordering::Relaxed),
+            start.elapsed(),
+        );
+        let _ = p.await;
+        crate::ui::clear_progress_line();
     }
 
     let stats = PathsStats {

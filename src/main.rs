@@ -557,11 +557,11 @@ async fn main() -> anyhow::Result<()> {
                         concurrency,
                         true,
                     );
-                    ui::info(&format!("zone   {}", zone_path.display()));
+                    ui::info(&format!("zone  |  {}", zone_path.display()));
                 }
                 let (res, addr) = run_enum_with_mock(cfg, &words, zone).await?;
                 if !quiet {
-                    ui::info(&format!("mock   {addr}"));
+                    ui::info(&format!("mock resolver  |  {addr}"));
                 }
                 res
             } else {
@@ -649,23 +649,15 @@ async fn main() -> anyhow::Result<()> {
             let words = load_wordlist(&wordlist)?;
             let match_codes = parse_status_list(&status)?;
 
+            let mut mock_kind = None; // Some("hard") | Some("paths")
             let mock = if let Some(zone_path) = mock_hard_zone {
                 let zone = load_hard_zone(&zone_path)?;
-                let mock = MockHttp::spawn_zone(zone).await?;
-                if !quiet {
-                    ui::info(&format!(
-                        "hard mock HTTP  {}  (soft404 zone)",
-                        mock.addr
-                    ));
-                }
-                Some(mock)
+                mock_kind = Some("hard");
+                Some(MockHttp::spawn_zone(zone).await?)
             } else if let Some(paths_file) = mock_paths {
                 let hits = load_hit_paths(&paths_file)?;
-                let mock = MockHttp::spawn(hits).await?;
-                if !quiet {
-                    ui::info(&format!("mock HTTP  {}", mock.addr));
-                }
-                Some(mock)
+                mock_kind = Some("paths");
+                Some(MockHttp::spawn(hits).await?)
             } else {
                 None
             };
@@ -680,6 +672,13 @@ async fn main() -> anyhow::Result<()> {
 
             if !quiet {
                 ui::paths_start(&base_url, words.len(), concurrency, soft404_probes);
+                match mock_kind {
+                    Some("hard") => ui::info(&format!(
+                        "hard mock HTTP  |  {base_url}  |  soft-404 zone"
+                    )),
+                    Some("paths") => ui::info(&format!("mock HTTP  |  {base_url}")),
+                    _ => {}
+                }
             }
 
             let cfg = PathsConfig {
