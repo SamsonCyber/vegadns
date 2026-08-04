@@ -12,7 +12,9 @@ use ahash::{AHashMap, AHashSet};
 
 use crate::classify::{classify_response, is_positive_hit, ResponseClass};
 use crate::dedup::Deduper;
-use crate::dns_packet::{build_query_into, parse_message, patch_query_id, peek_id};
+use crate::dns_packet::{
+    build_query_into, classify_response_packet, parse_message, patch_query_id, peek_id,
+};
 use crate::expand::expand_label;
 use crate::mock_dns::{MockServer, MockZone};
 use crate::wildcard::{
@@ -197,32 +199,34 @@ impl SyncResolver {
             }
         }
 
-        // Inflight cap ~massdns -s 2000: higher floods loopback mock and causes drop storms.
-        let concurrency = self.cfg.concurrency.max(1).min(2000);
+        // Inflight cap ~massdns -s: higher floods loopback mock and causes drop storms.
+        let concurrency = self.cfg.concurrency.max(1).min(4000);
         let mut pending: AHashMap<u16, Pending> =
             AHashMap::with_capacity(concurrency.min(names.len()).max(16));
         let mut classes: Vec<Option<ResponseClass>> = vec![None; names.len()];
         let mut done = 0usize;
         let mut name_idx = 0usize;
 
-        // Short retry interval; full timeout only for give-up.
-        // Second-guess: too-aggressive retransmit floods loopback and slows wall.
+        // Retransmit after ~2× mock RTT band; full timeout only for give-up.
+        // 18ms under 10ms stress latency: covers one late reply without self-DDoS.
         let retry_after =
-            Duration::from_millis(25).min(self.cfg.timeout / 3).max(Duration::from_millis(10));
+            Duration::from_millis(18).min(self.cfg.timeout / 3).max(Duration::from_millis(8));
         let give_up_after = self.cfg.timeout;
         // attempts starts at 1; allow `retries` retransmits (total sends = retries+1).
         let max_attempts = self.cfg.retries.saturating_add(1).max(1);
         let overall_deadline = Instant::now()
-            + give_up_after.saturating_mul(self.cfg.retries.saturating_add(3));
+            + give_up_after.saturating_mul(self.cfg.retries.saturating_add(2).max(2));
         let mut last_progress = Instant::now();
         let mut last_ui = Instant::now();
         let resolve_start = Instant::now();
-        let show_ui = !self.cfg.quiet && names.len() >= 64;
+        // Any non-quiet TTY run gets the live bar (short lists just flash once).
+        let show_ui = !self.cfg.quiet && crate::ui::stderr_is_tty() && !names.is_empty();
 
-        // Burst then drain (massdns-class). 384 balances fill vs drop.
-        let burst = 384usize;
+        // Burst then drain (massdns-class). 512 fills the pipe under 10ms latency.
+        let burst = 512usize;
         let mut to_retry: Vec<(u16, usize, usize)> = Vec::with_capacity(256);
         let mut expired: Vec<u16> = Vec::with_capacity(64);
+        let mut servfail_retry: Vec<(u16, usize, usize)> = Vec::with_capacity(64);
 
         loop {
             let mut sent_this_round = 0usize;
@@ -267,11 +271,12 @@ impl SyncResolver {
                 }
             }
 
-            // recv drain — peek TXID, then fast classify (no name allocations)
+            // recv drain — fast classify (no question/answer name strings)
             let mut got_any = false;
+            servfail_retry.clear();
             for sock in &self.socks {
                 // Drain hard: many replies per send burst.
-                for _ in 0..1024 {
+                for _ in 0..2048 {
                     match sock.recv_from(&mut self.buf) {
                         Ok((n, _)) => {
                             got_any = true;
@@ -283,32 +288,69 @@ impl SyncResolver {
                             if !pending.contains_key(&id) {
                                 continue;
                             }
-                            if let Ok(msg) = parse_message(slice) {
-                                if let Some(p) = pending.remove(&msg.id) {
-                                    let class = classify_response(&msg);
-                                    match &class {
-                                        ResponseClass::Live { .. }
-                                        | ResponseClass::NoErrorEmpty => {
-                                            self.counters
-                                                .responses_ok
-                                                .fetch_add(1, Ordering::Relaxed);
-                                        }
-                                        ResponseClass::NxDomain => {
-                                            self.counters.nxdomain.fetch_add(1, Ordering::Relaxed);
-                                        }
-                                        _ => {
-                                            self.counters.errors.fetch_add(1, Ordering::Relaxed);
+                            // Prefer zero-alloc-ish classify; full parse only as fallback.
+                            let class = match classify_response_packet(slice) {
+                                Ok((cid, c)) if cid == id => c,
+                                _ => match parse_message(slice) {
+                                    Ok(msg) => classify_response(&msg),
+                                    Err(_) => ResponseClass::Garbage,
+                                },
+                            };
+                            match &class {
+                                ResponseClass::Live { .. } | ResponseClass::NoErrorEmpty => {
+                                    if let Some(p) = pending.remove(&id) {
+                                        self.counters
+                                            .responses_ok
+                                            .fetch_add(1, Ordering::Relaxed);
+                                        if classes[p.name_idx].is_none() {
+                                            classes[p.name_idx] = Some(class);
+                                            done += 1;
                                         }
                                     }
-                                    if classes[p.name_idx].is_none() {
-                                        classes[p.name_idx] = Some(class);
-                                        done += 1;
+                                }
+                                ResponseClass::NxDomain => {
+                                    if let Some(p) = pending.remove(&id) {
+                                        self.counters.nxdomain.fetch_add(1, Ordering::Relaxed);
+                                        if classes[p.name_idx].is_none() {
+                                            classes[p.name_idx] = Some(class);
+                                            done += 1;
+                                        }
+                                    }
+                                }
+                                // SERVFAIL / REFUSED / formerr: retransmit in-loop.
+                                // Accepting them as final Error forces slow recovery passes.
+                                ResponseClass::Error { .. } | ResponseClass::Garbage => {
+                                    self.counters.errors.fetch_add(1, Ordering::Relaxed);
+                                    let can_retry = pending
+                                        .get(&id)
+                                        .map(|p| p.attempts < max_attempts)
+                                        .unwrap_or(false);
+                                    if can_retry {
+                                        if let Some(p) = pending.get_mut(&id) {
+                                            p.attempts += 1;
+                                            p.sent_at = Instant::now();
+                                            servfail_retry.push((id, p.name_idx, p.sock_idx));
+                                        }
+                                    } else if let Some(p) = pending.remove(&id) {
+                                        if classes[p.name_idx].is_none() {
+                                            classes[p.name_idx] = Some(class);
+                                            done += 1;
+                                        }
                                     }
                                 }
                             }
                         }
                         Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
                         Err(_) => break,
+                    }
+                }
+            }
+            // Immediate SERVFAIL retransmit (do not wait full retry_after).
+            for (id, ni, si) in servfail_retry.drain(..) {
+                if let Some(tpl) = templates[ni].as_mut() {
+                    patch_query_id(tpl, id);
+                    if self.send_pkt(si, tpl).is_ok() {
+                        self.counters.queries_sent.fetch_add(1, Ordering::Relaxed);
                     }
                 }
             }
@@ -529,14 +571,21 @@ pub async fn run_enum(
         }
 
         // Phase 2: main resolve
+        if !cfg_c.quiet {
+            crate::ui::info(&format!(
+                "resolving  |  {} labels  |  live bar on TTY",
+                candidates.len()
+            ));
+        }
         let mut results = resolver.resolve(&candidates);
 
-        // Phase 2b: recovery for UDP drops until clear or 3 passes (R=1 gate).
+        // Phase 2b: adaptive recovery — at most 2 batch passes, then batch leftovers.
+        // In-loop SERVFAIL retransmit should leave near-zero Errors; keep this cheap.
         {
             let old_c = resolver.cfg.concurrency;
             let old_t = resolver.cfg.timeout;
             let old_r = resolver.cfg.retries;
-            for pass in 0..3 {
+            for pass in 0..2 {
                 let mut missing: Vec<String> = Vec::new();
                 let mut missing_idx: Vec<usize> = Vec::new();
                 for (i, (name, class)) in results.iter().enumerate() {
@@ -550,12 +599,12 @@ pub async fn run_enum(
                 }
                 let nmiss = missing.len();
                 resolver.cfg.concurrency = match pass {
-                    0 => (nmiss.min(800)).max(64),
-                    1 => (nmiss.min(256)).max(32),
-                    _ => (nmiss.min(64)).max(8),
+                    0 => (nmiss.min(1024)).max(32),
+                    _ => (nmiss.min(256)).max(16),
                 };
-                resolver.cfg.timeout = old_t.max(Duration::from_millis(600));
-                resolver.cfg.retries = old_r.max(3);
+                // Short recovery budget: do not pay multi-second straggler tax.
+                resolver.cfg.timeout = old_t.max(Duration::from_millis(200));
+                resolver.cfg.retries = old_r.max(2);
                 let recovered = resolver.resolve(&missing);
                 for (j, rec) in recovered.into_iter().enumerate() {
                     let i = missing_idx[j];
@@ -564,23 +613,23 @@ pub async fn run_enum(
                     }
                 }
             }
-            // Single-name last resort for any remaining timeouts (usually 0–5 names).
+            // One more batched pass for any remaining errors (no per-name serial resolve).
             let leftovers: Vec<(usize, String)> = results
                 .iter()
                 .enumerate()
                 .filter(|(_, (_, c))| matches!(c, ResponseClass::Error { .. } | ResponseClass::Garbage))
                 .map(|(i, (n, _))| (i, n.clone()))
                 .collect();
-            if !leftovers.is_empty() {
-                resolver.cfg.concurrency = 1;
-                resolver.cfg.timeout = Duration::from_millis(1200);
-                resolver.cfg.retries = 5;
-                for (i, name) in leftovers {
-                    let rec = resolver.resolve(std::slice::from_ref(&name));
-                    if let Some(r) = rec.into_iter().next() {
-                        if !matches!(r.1, ResponseClass::Error { .. }) {
-                            results[i] = r;
-                        }
+            if !leftovers.is_empty() && leftovers.len() <= 64 {
+                let names: Vec<String> = leftovers.iter().map(|(_, n)| n.clone()).collect();
+                resolver.cfg.concurrency = leftovers.len().max(8);
+                resolver.cfg.timeout = Duration::from_millis(350);
+                resolver.cfg.retries = 3;
+                let recovered = resolver.resolve(&names);
+                for (j, rec) in recovered.into_iter().enumerate() {
+                    let i = leftovers[j].0;
+                    if !matches!(rec.1, ResponseClass::Error { .. }) {
+                        results[i] = rec;
                     }
                 }
             }

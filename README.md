@@ -98,7 +98,7 @@ Binary: `target/release/vegadns` (`.exe` on Windows).
 
 Requires a recent Rust toolchain. No massdns dependency for the binary itself.
 
-**Output model:** stdout = results only (pipe-safe). stderr = human TUI (banners, live resolve progress on TTY, aligned stats). Color when TTY and `NO_COLOR` unset. Use `-q` / `--quiet-names` to silence.
+**Output model:** stdout = results only (pipe-safe). stderr = ferox-class human UI (ASCII banner, scan-config panel, `[INF]`/`[OK ]`/`[WRN]` tags, live `[####>---]` progress on TTY, boxed complete stats). Color when TTY and `NO_COLOR` unset. Use `-q` / `--quiet-names` to silence.
 
 ## Quick start
 

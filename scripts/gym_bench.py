@@ -384,14 +384,21 @@ def run_mock_mode(
             proc.wait()
         stop.set()
         th.join(timeout=2)
+        # Fair H2H: process wall for every tool (same clock as massdns/puredns/dnsx).
         wall = time.perf_counter() - t0
+        eng = None
         if stats.exists():
-            wall = float(json.loads(stats.read_text(encoding="utf-8")).get("wall_secs", wall))
+            try:
+                eng = float(json.loads(stats.read_text(encoding="utf-8")).get("wall_secs", wall))
+            except (json.JSONDecodeError, TypeError, ValueError):
+                eng = None
         found = parse_names_file(names)
         r, p, hit, kn = recall_precision(found, known)
         note = "enum + wildcard filter"
         if stress:
             note += f" | stress latency={latency_ms}ms servfail={servfail_pct}% drop={drop_pct}%"
+        if eng is not None:
+            note += f" | engine_wall={eng:.4f}"
         rows.append(final_row("vegadns", wall, len(found), r, p, timed=proc.returncode == 0, note=note))
 
         # massdns
@@ -546,8 +553,8 @@ def run_mock_mode(
         else:
             rows.append(final_row("shuffledns", 0, 0, 0.0, 1.0, timed=False, note="not installed"))
 
-        # gobuster dns (real tool; slower, still timed when present)
-        gob = which("gobuster")
+        # gobuster dns: skip under stress H2H (hangs / multi-minute; not massdns peer).
+        gob = which("gobuster") if not stress else None
         if gob:
             gout = out / "gobuster_dns.txt"
             gcmd = [
@@ -569,7 +576,8 @@ def run_mock_mode(
             )
             th6.start()
             try:
-                so_g, se_g = gp.communicate(timeout=600)
+                # Gobuster DNS is slow / can hang on custom resolvers; keep suite moving.
+                so_g, se_g = gp.communicate(timeout=45)
             except subprocess.TimeoutExpired:
                 gp.kill()
                 so_g, se_g = gp.communicate()
@@ -686,9 +694,7 @@ def run_live_resolve(out: Path, *, authorized: bool, concurrency: int) -> dict:
         proc.wait()
     stop.set()
     th.join(timeout=2)
-    wall = time.perf_counter() - t0
-    if stats.exists():
-        wall = float(json.loads(stats.read_text(encoding="utf-8")).get("wall_secs", wall))
+    wall = time.perf_counter() - t0  # process wall (fair vs massdns)
     found = parse_names_file(names)
     r, p, hit, kn = recall_precision(found, known)
     nx_leak = sum(1 for f in found if normalize_name(f) in nx_set)

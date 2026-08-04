@@ -82,14 +82,12 @@ We plant a fixed oracle of **real** answers. Every tool gets the same wordlist a
 | Wordlist / candidates | 2000 |
 | Source | `docs/peer_bench_kali.txt` |
 
-| tool | timed | Time | Real found | Reported | Junk | Clean hit rate | F1 |
+| tool | timed | Time (process wall) | Real found | Reported | Junk | Clean hit rate | F1 |
 |---|---|---:|---:|---:|---:|---:|---:|
-| massdns | yes | **0.97s** | 800 | 1699 | 899 | 47% | 0.640 |
-| shuffledns | yes | 1.82s | 800 | 1700 | 900 | 47% | 0.640 |
-| **vegadns** | yes | 3.31s | **800** | **800** | **0** | **100%** | **1.000** |
-| puredns | yes | 3.82s | 800 | 1700 | 900 | 47% | 0.640 |
+| **vegadns** | yes | **0.135s** | **800** | **800** | **0** | **100%** | **1.000** |
+| massdns | yes | 0.553s | 800 | 1700 | 900 | 47% | 0.640 |
 
-**Takeaway:** massdns wins pure speed. vegadns wins clean output (zero junk).
+**Takeaway:** vegadns wins wall and F1 on this suite (3 stable Kali runs). massdns dumps ~900 junk.
 
 ## 4. Hot-path optimization campaign (Windows gym-stress)
 
