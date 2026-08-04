@@ -79,6 +79,20 @@ class TestUnbiasedBench(unittest.TestCase):
         self.assertAlmostEqual(metrics.f1(1.0, 1.0), 1.0)
         self.assertAlmostEqual(metrics.f1(0.0, 1.0), 0.0)
 
+    def test_htb_target_mode_is_gym_core_not_live_dns(self) -> None:
+        """Ship contract: htb-target attaches metadata but DNS race stays gym mock.
+
+        Live 10.129 resolve requires HTB VPN and a separate path; do not treat
+        htb-target bench walls as live lab enum without reachability.
+        """
+        src = (ROOT / "scripts" / "unbiased_tool_bench.py").read_text(encoding="utf-8")
+        self.assertIn("htb-target", src)
+        self.assertIn("gym", src.lower())
+        # mode branches to mock-stress when htb-target is requested
+        self.assertIn('mode = "mock-stress"', src)
+        self.assertIn("htb_meta", src)
+        self.assertIn("htb_target", src)
+
 
 if __name__ == "__main__":
     unittest.main()
