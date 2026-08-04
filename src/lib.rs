@@ -16,6 +16,7 @@ pub mod path_join;
 pub mod paths_engine;
 pub mod permute;
 pub mod soft404;
+pub mod ui;
 pub mod wildcard;
 pub mod wordlists;
 
