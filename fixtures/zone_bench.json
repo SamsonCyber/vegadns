@@ -1,0 +1,18 @@
+{
+  "base": "bench.test",
+  "records": {
+    "www.bench.test": ["1.2.3.4"],
+    "mail.bench.test": ["1.2.3.5"],
+    "api.bench.test": ["1.2.3.6"],
+    "vpn.bench.test": ["1.2.3.7"],
+    "dev.bench.test": ["1.2.3.8"],
+    "staging.bench.test": ["1.2.3.9"],
+    "cdn.bench.test": ["1.2.3.10"],
+    "admin.bench.test": ["1.2.3.11"],
+    "git.bench.test": ["1.2.3.12"],
+    "ci.bench.test": ["1.2.3.13"]
+  },
+  "wildcards": {
+    "wild.bench.test": ["9.9.9.9"]
+  }
+}

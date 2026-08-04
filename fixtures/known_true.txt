@@ -1,0 +1,10 @@
+www.bench.test
+mail.bench.test
+api.bench.test
+vpn.bench.test
+dev.bench.test
+staging.bench.test
+cdn.bench.test
+admin.bench.test
+git.bench.test
+ci.bench.test

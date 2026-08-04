@@ -1,0 +1,8 @@
+http://127.0.0.1:PORT/admin
+http://127.0.0.1:PORT/api
+http://127.0.0.1:PORT/login
+http://127.0.0.1:PORT/robots.txt
+http://127.0.0.1:PORT/health
+http://127.0.0.1:PORT/status
+http://127.0.0.1:PORT/.well-known/security.txt
+http://127.0.0.1:PORT/dashboard

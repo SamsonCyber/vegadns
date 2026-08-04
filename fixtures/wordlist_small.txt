@@ -1,0 +1,21 @@
+# small fixture wordlist
+www
+mail
+api
+vpn
+dev
+staging
+cdn
+admin
+git
+ci
+nope
+garbage999
+notreal
+foo.wild
+bar.wild
+zzz
+xyz
+test
+portal
+login

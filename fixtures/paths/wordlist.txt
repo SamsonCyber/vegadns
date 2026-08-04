@@ -1,0 +1,21 @@
+# path wordlist for lab suite
+admin
+api
+login
+robots.txt
+health
+status
+.gitignore
+wp-admin
+notreal-junk-xyz
+missing-path-000
+dashboard
+config
+backup
+secret
+.well-known/security.txt
+favicon.ico
+index.html
+assets
+static
+uploads

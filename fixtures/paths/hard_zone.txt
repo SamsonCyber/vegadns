@@ -1,0 +1,27 @@
+# Hard path zone: path STATUS (soft-404 on everything else)
+# 200 real content
+admin 200
+api 200
+login 200
+robots.txt 200
+health 200
+status 200
+.well-known/security.txt 200
+dashboard 200
+config 200
+backup 200
+favicon.ico 200
+index.html 200
+assets 200
+static 200
+uploads 200
+api/v1 200
+api/v2 200
+admin/users 200
+graphql 200
+swagger.json 200
+# auth walls still count as discovery hits
+secret 401
+internal 403
+private 401
+wp-admin 403

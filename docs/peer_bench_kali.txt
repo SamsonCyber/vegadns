@@ -1,0 +1,40 @@
+Subdomain Scanner Gym — TRUE TEST report
+========================================================
+mode: mock-stress
+scope: 127.0.0.1 stress mock (latency=10ms servfail=5% drop=2%)
+base/target: gym.test
+known_true/oracle: 800
+wordlist/candidates: 2000
+resolver: 127.0.0.1:54812
+
+CLAIM BOUNDS (read this)
+  PROVES:
+    - Wall/recall/precision/F1 on this harness under the declared mode
+    - Wildcard filter improves precision/F1 vs peers that dump noise (mock modes)
+    - Single-binary Windows+Linux path without massdns dependency
+  DOES NOT PROVE:
+    - Fastest tool on the market
+    - Fastest vs massdns on the public internet at multi-million scale
+    - Replaces puredns+massdns for every large hunt
+    - Passive OSINT / SaaS ASM coverage
+    - Public resolver QPS supremacy
+  NOTE: Prefer wall + recall + precision/F1 together. F1 wins are not pure QPS wins. massdns raw dump can be faster and noisier.
+
+tool         timed      wall_s    found   recall     prec       f1  notes
+--------------------------------------------------------------------------------------------
+vegadns      yes        3.3088      800    1.000    1.000    1.000  enum + wildcard filter | stress latency=10ms servfail=5% drop=2%
+massdns      yes        0.9716     1699    1.000    0.471    0.640  no wildcard filter
+dnsx         no              -        0    0.000    1.000    0.000  not comparable exit=-9
+puredns      yes        3.8218     1700    1.000    0.471    0.640  resolve+wildcard filter (massdns backend)
+shuffledns   yes        1.8187     1700    1.000    0.471    0.640  resolve mode (massdns backend)
+gobuster-dns no              -        0    0.000    1.000    0.000  exit=0 
+
+EFFICIENCY
+tool             cand/s    found/s  eff_score
+------------------------------------------------
+vegadns           604.5      241.8     0.6044
+massdns          2058.5     1748.7     1.3180
+dnsx                  -          -          -
+puredns           523.3      444.8     0.3349
+shuffledns       1099.7      934.7     0.7038
+gobuster-dns          -          -          -

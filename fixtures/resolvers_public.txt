@@ -1,0 +1,6 @@
+# Public resolvers for optional live runs (not used by mock bench path)
+1.1.1.1
+8.8.8.8
+9.9.9.9
+1.0.0.1
+8.8.4.4

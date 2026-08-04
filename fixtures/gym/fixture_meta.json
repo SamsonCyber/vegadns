@@ -1,0 +1,21 @@
+{
+  "base": "gym.test",
+  "known_true": 800,
+  "obscure_true": 281,
+  "realistic_true": 519,
+  "wordlist": 30000,
+  "records": 800,
+  "wild_parents": [
+    "wild.gym.test",
+    "cdn-edge.gym.test",
+    "catch-all.gym.test"
+  ],
+  "scope": "127.0.0.1 private lab only",
+  "paths": {
+    "zone": "C:\\Code\\vegadns\\fixtures\\gym\\zone_gym.json",
+    "known_true": "C:\\Code\\vegadns\\fixtures\\gym\\known_true_gym.txt",
+    "obscure_true": "C:\\Code\\vegadns\\fixtures\\gym\\obscure_true.txt",
+    "realistic_true": "C:\\Code\\vegadns\\fixtures\\gym\\realistic_true.txt",
+    "wordlist": "C:\\Code\\vegadns\\fixtures\\gym\\wordlist_gym.txt"
+  }
+}

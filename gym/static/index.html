@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Subdomain Scanner Gym — TRUE TEST</title>
+  <style>
+    :root {
+      --bg: #0b0f14;
+      --panel: #121821;
+      --text: #e6edf3;
+      --muted: #8b9bb0;
+      --accent: #3dd6c6;
+      --vegadns: #3dd6c6;
+      --massdns: #f0a500;
+      --dnsx: #7aa2f7;
+      --puredns: #bb9af7;
+      --border: #243044;
+      --warn: #f7768e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, Segoe UI, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    header {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      align-items: center;
+      justify-content: space-between;
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.25rem;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+    }
+    .sub {
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin-top: 0.25rem;
+    }
+    .badge {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      border: 1px solid var(--border);
+      color: var(--accent);
+      padding: 0.2rem 0.5rem;
+      border-radius: 999px;
+    }
+    main {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1rem;
+      padding: 1rem 1.5rem 2rem;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+    @media (min-width: 900px) {
+      main { grid-template-columns: 1.4fr 1fr; }
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem;
+    }
+    .panel h2 {
+      margin: 0 0 0.75rem;
+      font-size: 0.95rem;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    #chart {
+      width: 100%;
+      height: 320px;
+      display: block;
+      background: #0a0e13;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+    button {
+      background: var(--accent);
+      color: #04201c;
+      border: none;
+      border-radius: 8px;
+      padding: 0.55rem 0.9rem;
+      font-weight: 650;
+      cursor: pointer;
+    }
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    button.secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.4rem 0.35rem;
+      border-bottom: 1px solid var(--border);
+    }
+    th { color: var(--muted); font-weight: 600; }
+    .status {
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 0.8rem;
+      color: var(--muted);
+      white-space: pre-wrap;
+      min-height: 3rem;
+    }
+    .legend {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-top: 0.5rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .swatch {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      margin-right: 0.35rem;
+    }
+    .honesty {
+      margin: 0 1.5rem 0;
+      padding: 0.75rem 1rem;
+      border: 1px solid var(--warn);
+      border-radius: 10px;
+      background: #1a1014;
+      color: #e0af68;
+      font-size: 0.8rem;
+      line-height: 1.45;
+      max-width: 1100px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    select {
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.5rem 0.65rem;
+      font-size: 0.85rem;
+    }
+    #bounds {
+      font-size: 0.78rem;
+      color: var(--muted);
+      white-space: pre-wrap;
+      margin-top: 0.75rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Subdomain Scanner Gym — TRUE TEST</h1>
+      <div class="sub">Multi-mode harness. Wall + recall + precision/F1. Not market QPS supremacy.</div>
+    </div>
+    <span class="badge" id="run-state">idle</span>
+  </header>
+  <div class="honesty">
+    <strong>Claim bounds.</strong> This gym does <em>not</em> prove “fastest on the market,” public-internet massdns supremacy, or replacement of puredns+massdns for every large hunt.
+    It measures wall/recall/precision under the selected mode (clean mock, stress mock, or live fixed-FQDN resolve).
+  </div>
+  <main>
+    <section class="panel">
+      <h2>Live tool wall-time (s)</h2>
+      <div class="controls">
+        <select id="mode-select" aria-label="Test mode">
+          <option value="mock-stress" selected>mock-stress (latency+SERVFAIL+drop)</option>
+          <option value="mock-clean">mock-clean (instant, regression)</option>
+          <option value="live-resolve">live-resolve (public resolvers, fixed FQDNs)</option>
+        </select>
+        <button id="btn-run" type="button">Run true test</button>
+        <button id="btn-refresh" class="secondary" type="button">Refresh</button>
+      </div>
+      <canvas id="chart" width="800" height="320" aria-label="Speed comparison chart"></canvas>
+      <div class="legend">
+        <span><i class="swatch" style="background:var(--vegadns)"></i>vegadns</span>
+        <span><i class="swatch" style="background:var(--massdns)"></i>massdns</span>
+        <span><i class="swatch" style="background:var(--dnsx)"></i>dnsx</span>
+        <span><i class="swatch" style="background:var(--puredns)"></i>puredns</span>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Final metrics</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Tool</th>
+            <th>Wall s</th>
+            <th>Found</th>
+            <th>Recall</th>
+            <th>Prec</th>
+            <th>F1</th>
+          </tr>
+        </thead>
+        <tbody id="metrics-body">
+          <tr><td colspan="6" style="color:var(--muted)">No run yet.</td></tr>
+        </tbody>
+      </table>
+      <h2 style="margin-top:1rem">Status</h2>
+      <div class="status" id="status">Pick a mode. Default mock-stress is the real local test (not free-lunch instant mock).</div>
+      <div id="bounds"></div>
+    </section>
+  </main>
+  <script>
+    const COLORS = {
+      vegadns: "#3dd6c6",
+      massdns: "#f0a500",
+      dnsx: "#7aa2f7",
+      puredns: "#bb9af7",
+    };
+    const canvas = document.getElementById("chart");
+    const ctx = canvas.getContext("2d");
+    const statusEl = document.getElementById("status");
+    const stateEl = document.getElementById("run-state");
+    const bodyEl = document.getElementById("metrics-body");
+    const btnRun = document.getElementById("btn-run");
+    const btnRefresh = document.getElementById("btn-refresh");
+    const modeSelect = document.getElementById("mode-select");
+    const boundsEl = document.getElementById("bounds");
+
+    let series = {}; // tool -> [{t, qps}]
+    let pollTimer = null;
+
+    function resizeCanvas() {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.floor(rect.width * dpr);
+      canvas.height = Math.floor(320 * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      draw();
+    }
+
+    function draw() {
+      const w = canvas.getBoundingClientRect().width;
+      const h = 320;
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = "#0a0e13";
+      ctx.fillRect(0, 0, w, h);
+
+      const pad = { l: 48, r: 16, t: 16, b: 36 };
+      const tools = Object.keys(series);
+      let maxT = 0.001;
+      let maxY = 1;
+      for (const tool of tools) {
+        for (const p of series[tool]) {
+          if (p.t > maxT) maxT = p.t;
+        }
+        // y axis = elapsed wall time samples (identity line length) — plot sample count vs time
+        // Actually we plot elapsed time on X and cumulative "progress proxy" as sample index on Y
+        // Better: X = sample time, Y = wall_s (same as t) shows how long each tool has been running
+        // For comparison: horizontal final markers work; live plot is wall-time growth vs wall clock.
+      }
+      // Plot: x = wall-clock sample t, y = same t (progress of each tool) — different tools start sequential
+      // Better chart: for each tool series of (sample_index, t) so slope is "how fast wall advances" (always ~1)
+      // Desired: comparison of FINAL wall times as bars, AND live lines of elapsed during each tool run.
+      // X = absolute sample timestamp order, Y = elapsed for that tool.
+      // Simple approach: X = t (elapsed for tool), Y = t (line to current), multiple tools overlaid with different colors
+      // → final length = wall time. While running, line grows.
+
+      let maxElapsed = 0.5;
+      for (const tool of tools) {
+        for (const p of series[tool]) {
+          if (p.t > maxElapsed) maxElapsed = p.t;
+        }
+      }
+      maxElapsed *= 1.1;
+
+      // axes
+      ctx.strokeStyle = "#243044";
+      ctx.beginPath();
+      ctx.moveTo(pad.l, pad.t);
+      ctx.lineTo(pad.l, h - pad.b);
+      ctx.lineTo(w - pad.r, h - pad.b);
+      ctx.stroke();
+
+      ctx.fillStyle = "#8b9bb0";
+      ctx.font = "11px sans-serif";
+      ctx.fillText("0", pad.l - 8, h - pad.b + 14);
+      ctx.fillText(maxElapsed.toFixed(2) + "s", w - pad.r - 36, h - pad.b + 14);
+      ctx.fillText("elapsed", w / 2 - 20, h - 8);
+      ctx.save();
+      ctx.translate(14, h / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText("wall time (s)", 0, 0);
+      ctx.restore();
+
+      const plotW = w - pad.l - pad.r;
+      const plotH = h - pad.t - pad.b;
+
+      for (const tool of tools) {
+        const pts = series[tool];
+        if (!pts.length) continue;
+        ctx.strokeStyle = COLORS[tool] || "#ccc";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        pts.forEach((p, i) => {
+          const x = pad.l + (p.t / maxElapsed) * plotW;
+          const y = (h - pad.b) - (p.t / maxElapsed) * plotH;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+        // endpoint dot
+        const last = pts[pts.length - 1];
+        const x = pad.l + (last.t / maxElapsed) * plotW;
+        const y = (h - pad.b) - (last.t / maxElapsed) * plotH;
+        ctx.fillStyle = COLORS[tool] || "#ccc";
+        ctx.beginPath();
+        ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      if (!tools.length) {
+        ctx.fillStyle = "#8b9bb0";
+        ctx.font = "13px sans-serif";
+        ctx.fillText("Waiting for samples…", pad.l + 20, h / 2);
+      }
+    }
+
+    function ingestSamples(lines) {
+      series = {};
+      for (const ln of lines) {
+        if (!ln.trim()) continue;
+        try {
+          const o = JSON.parse(ln);
+          if (!o.tool || o.t == null) continue;
+          if (!series[o.tool]) series[o.tool] = [];
+          series[o.tool].push({ t: o.t, phase: o.phase });
+        } catch (_) {}
+      }
+      draw();
+    }
+
+    async function fetchSamples() {
+      const r = await fetch("/api/samples?_=" + Date.now());
+      if (!r.ok) return;
+      const text = await r.text();
+      ingestSamples(text.split("\n"));
+    }
+
+    async function fetchReport() {
+      const r = await fetch("/api/report?_=" + Date.now());
+      if (!r.ok) return null;
+      return r.json();
+    }
+
+    function renderTable(report) {
+      if (!report || !report.tools) {
+        bodyEl.innerHTML = '<tr><td colspan="6" style="color:var(--muted)">No report yet.</td></tr>';
+        boundsEl.textContent = "";
+        return;
+      }
+      bodyEl.innerHTML = report.tools.map(t => {
+        const wall = t.timed && t.wall_s != null ? t.wall_s.toFixed(4) : "—";
+        const rec = t.recall != null ? t.recall.toFixed(3) : "—";
+        const prec = t.precision != null ? t.precision.toFixed(3) : "—";
+        const f1 = t.f1 != null ? t.f1.toFixed(3) : "—";
+        return `<tr>
+          <td>${t.tool}</td>
+          <td>${wall}</td>
+          <td>${t.found ?? "—"}</td>
+          <td>${rec}</td>
+          <td>${prec}</td>
+          <td>${f1}</td>
+        </tr>`;
+      }).join("");
+      const cb = report.claim_bounds || {};
+      const proves = (cb.proves || []).map(x => "  + " + x).join("\n");
+      const no = (cb.does_not_prove || []).map(x => "  - " + x).join("\n");
+      boundsEl.textContent =
+        "mode: " + (report.mode || "?") + "\n" +
+        "scope: " + (report.scope || "") + "\n" +
+        "PROVES:\n" + proves + "\nDOES NOT PROVE:\n" + no +
+        (cb.metric_note ? "\nNOTE: " + cb.metric_note : "");
+    }
+
+    async function poll() {
+      try {
+        await fetchSamples();
+        const st = await (await fetch("/api/status")).json();
+        stateEl.textContent = st.state || "unknown";
+        if (st.state === "running") {
+          statusEl.textContent = "Benchmark running… sampling wall time per tool.";
+          btnRun.disabled = true;
+        } else if (st.state === "done") {
+          btnRun.disabled = false;
+          const rep = await fetchReport();
+          renderTable(rep);
+          statusEl.textContent = "Run complete. See final metrics table.";
+          if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+          }
+        } else if (st.state === "error") {
+          btnRun.disabled = false;
+          statusEl.textContent = "Error: " + (st.message || "unknown");
+          if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+          }
+        }
+      } catch (e) {
+        statusEl.textContent = "Poll error: " + e;
+      }
+    }
+
+    btnRun.addEventListener("click", async () => {
+      series = {};
+      draw();
+      btnRun.disabled = true;
+      stateEl.textContent = "starting";
+      const mode = modeSelect.value;
+      statusEl.textContent = "Starting TRUE TEST mode=" + mode + " …";
+      try {
+        const r = await fetch("/api/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode }),
+        });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || r.statusText);
+        if (!pollTimer) pollTimer = setInterval(poll, 400);
+        poll();
+      } catch (e) {
+        statusEl.textContent = "Failed to start: " + e;
+        btnRun.disabled = false;
+      }
+    });
+
+    btnRefresh.addEventListener("click", () => {
+      poll();
+      fetchReport().then(renderTable);
+    });
+
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+    // initial
+    fetch("/api/status").then(r => r.json()).then(st => {
+      stateEl.textContent = st.state || "idle";
+      if (st.state === "done" || st.state === "running") {
+        poll();
+        if (st.state === "running" && !pollTimer) pollTimer = setInterval(poll, 400);
+        fetchReport().then(renderTable);
+      }
+    }).catch(() => {});
+  </script>
+</body>
+</html>

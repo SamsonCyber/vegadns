@@ -1,0 +1,3 @@
+# Local cargo config for quality tooling notes.
+# Coverage: cargo llvm-cov requires a toolchain with profiler_builtins
+# (MSVC or many Linux hosts). Windows-gnu may lack it.

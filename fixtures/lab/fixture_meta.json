@@ -1,0 +1,17 @@
+{
+  "base": "lab.test",
+  "known_true": 500,
+  "wordlist": 25000,
+  "records": 500,
+  "wild_parents": [
+    "wild.lab.test",
+    "cdn-edge.lab.test"
+  ],
+  "urls": 500,
+  "paths": {
+    "zone": "C:\\Code\\vegadns\\fixtures\\lab\\zone_lab.json",
+    "known_true": "C:\\Code\\vegadns\\fixtures\\lab\\known_true_lab.txt",
+    "wordlist": "C:\\Code\\vegadns\\fixtures\\lab\\wordlist_lab.txt",
+    "urls": "C:\\Code\\vegadns\\fixtures\\lab\\urls_lab.txt"
+  }
+}

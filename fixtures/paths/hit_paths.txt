@@ -1,0 +1,8 @@
+admin
+api
+login
+robots.txt
+health
+status
+.well-known/security.txt
+dashboard

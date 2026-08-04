@@ -1,0 +1,31 @@
+vegadns vs DNS peers + HTTP-adjacent tools
+========================================================================
+scope: private lab mock only (lab.test)
+wordlist_cap: 5000 labels (fair compare)
+known_true_in_cap: 500
+host: linux
+
+## DNS lane (subdomain enum peers)
+tool               wall_s   found   recall     prec  notes
+------------------------------------------------------------------------
+vegadns            0.0927     500    1.000    1.000  active DNS brute+wildcard filter hit=500/500
+massdns            0.5777     775    1.000    0.645  bulk resolve; no wildcard filter
+gobuster-dns     101.2220       0    0.000    1.000  DNS mode threads=50 hit=0
+dnsx                    -       0    0.000    1.000  resolve-only; not comparable exit=124 found=0 [not timed]
+puredns                 -       -        -        -  installed; massdns-backed brute not wired to custom :port mock in this harness [not timed]
+
+### vegadns vs timed DNS peers (wall lower is better)
+  vs massdns: vegadns 0.0927s vs 0.5777s → WIN
+  vs gobuster-dns: vegadns 0.0927s vs 101.2220s → WIN
+
+## HTTP lane (adjacent next hop — not competitors for subdomain enum)
+Pipeline: vegadns (subs) → httpx (live HTTP) → feroxbuster/ffuf/gobuster dir (paths)
+  feroxbuster: wall=1.5779s  HTTP content discovery (adjacent next hop), NOT subdomain enum
+  ffuf: wall=0.1330s  HTTP fuzzer (adjacent next hop), NOT subdomain enum
+  gobuster-dir: wall=0.0144s  HTTP dir mode (adjacent next hop), NOT DNS peer
+
+## Passive lane
+  subfinder: passive OSINT; lab.test not a public domain — not a DNS-brute peer
+
+## Verdict
+vegadns competes in DNS brute/resolve. ferox/ffuf/gobuster-dir sit AFTER hosts exist.

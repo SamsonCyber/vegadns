@@ -1,0 +1,73 @@
+# Build
+/target/
+**/*.rs.bk
+*.exe
+*.pdb
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Local secrets (never ship)
+.env
+.env.*
+*.pem
+*.key
+secrets/
+.secrets/
+
+# Scratch / local run output
+*.log
+bench_report.txt
+bench_artifacts/
+bench_out/
+opt_out/
+opt_round*/
+coverage_out/
+full_suite/
+quality_out/
+lab_out/
+paths_out/
+live_out/
+compare_out/
+gym_out/
+gym_out_*/
+htb_target.json
+**/htb_target.json
+
+# Root scratch from lab sessions (slash-anchored so wordlists/ stays tracked)
+/_out.txt
+/_wl.txt
+/_st.json
+/_path_server_hard.py
+/tmp_*.json
+/dns_*.txt
+/dns_*.log
+/dns_*.json
+/paths_vegadns*
+/paths_wordlist*
+/coverage_*.txt
+/coverage_*.json
+/lab_suite_*
+/live_dns_diff_*
+
+# Mutation / coverage tooling (large, local)
+mutants.out/
+mutants.out.old/
+graphify-out/
+.cargo/llvm-cov*
+
+# Wordlist fetch cache (regenerate with scripts/fetch_wordlists.py)
+wordlists/cache/

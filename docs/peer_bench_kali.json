@@ -1,0 +1,119 @@
+{
+  "gym": "Subdomain Scanner Gym \u2014 TRUE TEST",
+  "mode": "mock-stress",
+  "scope": "127.0.0.1 stress mock (latency=10ms servfail=5% drop=2%)",
+  "base": "gym.test",
+  "known_n": 800,
+  "wordlist_n": 2000,
+  "resolver": "127.0.0.1:54812",
+  "stress": {
+    "enabled": true,
+    "latency_ms": 10,
+    "servfail_pct": 5,
+    "drop_pct": 2
+  },
+  "claim_bounds": {
+    "proves": [
+      "Wall/recall/precision/F1 on this harness under the declared mode",
+      "Wildcard filter improves precision/F1 vs peers that dump noise (mock modes)",
+      "Single-binary Windows+Linux path without massdns dependency"
+    ],
+    "does_not_prove": [
+      "Fastest tool on the market",
+      "Fastest vs massdns on the public internet at multi-million scale",
+      "Replaces puredns+massdns for every large hunt",
+      "Passive OSINT / SaaS ASM coverage",
+      "Public resolver QPS supremacy"
+    ],
+    "metric_note": "Prefer wall + recall + precision/F1 together. F1 wins are not pure QPS wins. massdns raw dump can be faster and noisier."
+  },
+  "tools": [
+    {
+      "tool": "vegadns",
+      "timed": true,
+      "wall_s": 3.3088,
+      "found": 800,
+      "recall": 1.0,
+      "precision": 1.0,
+      "f1": 1.0,
+      "note": "enum + wildcard filter | stress latency=10ms servfail=5% drop=2%",
+      "candidates_per_sec": 604.45,
+      "found_per_sec": 241.78,
+      "efficiency_score": 0.6044
+    },
+    {
+      "tool": "massdns",
+      "timed": true,
+      "wall_s": 0.9716,
+      "found": 1699,
+      "recall": 1.0,
+      "precision": 0.4709,
+      "f1": 0.6403,
+      "note": "no wildcard filter",
+      "candidates_per_sec": 2058.46,
+      "found_per_sec": 1748.66,
+      "efficiency_score": 1.318
+    },
+    {
+      "tool": "dnsx",
+      "timed": false,
+      "wall_s": null,
+      "found": 0,
+      "recall": 0.0,
+      "precision": 1.0,
+      "f1": 0.0,
+      "note": "not comparable exit=-9",
+      "candidates_per_sec": null,
+      "found_per_sec": null,
+      "efficiency_score": null
+    },
+    {
+      "tool": "puredns",
+      "timed": true,
+      "wall_s": 3.8218,
+      "found": 1700,
+      "recall": 1.0,
+      "precision": 0.4706,
+      "f1": 0.64,
+      "note": "resolve+wildcard filter (massdns backend)",
+      "candidates_per_sec": 523.31,
+      "found_per_sec": 444.82,
+      "efficiency_score": 0.3349
+    },
+    {
+      "tool": "shuffledns",
+      "timed": true,
+      "wall_s": 1.8187,
+      "found": 1700,
+      "recall": 1.0,
+      "precision": 0.4706,
+      "f1": 0.64,
+      "note": "resolve mode (massdns backend)",
+      "candidates_per_sec": 1099.69,
+      "found_per_sec": 934.73,
+      "efficiency_score": 0.7038
+    },
+    {
+      "tool": "gobuster-dns",
+      "timed": false,
+      "wall_s": null,
+      "found": 0,
+      "recall": 0.0,
+      "precision": 1.0,
+      "f1": 0.0,
+      "note": "exit=0 ",
+      "candidates_per_sec": null,
+      "found_per_sec": null,
+      "efficiency_score": null
+    }
+  ],
+  "samples_file": "samples.jsonl",
+  "fairness": {
+    "same_candidates": true,
+    "same_resolvers": true,
+    "same_oracle": true,
+    "note": "All timed tools use the suite-generated candidate list and resolver file."
+  },
+  "suite": "unbiased_tool_bench",
+  "mode_requested": "gym-stress"
+}
